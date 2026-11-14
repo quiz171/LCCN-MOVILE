@@ -1,0 +1,337 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net: deny all unmatched paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ── Global Primitives ──────────────────────────────────────────────
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerifiedUser() && request.auth.token.email.lower() == 'nelsonwazini@gmail.com';
+    }
+
+    function hasAdminDoc() {
+      return isVerifiedUser() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function adminDoc() {
+      return get(/databases/$(database)/documents/admins/$(request.auth.uid)).data;
+    }
+
+    function isDioceseAdmin(dioceseId) {
+      return isBootstrappedAdmin() || (
+        hasAdminDoc() &&
+        adminDoc().role == 'diocese_secretary' &&
+        adminDoc().dioceseId == dioceseId
+      );
+    }
+
+    function isAnyDioceseAdmin() {
+      return isBootstrappedAdmin() || (
+        hasAdminDoc() &&
+        adminDoc().role == 'diocese_secretary'
+      );
+    }
+
+    function isDivisionAdminFor(dioceseId, divisionId) {
+      return isDioceseAdmin(dioceseId) || (
+        hasAdminDoc() &&
+        adminDoc().role == 'division_admin' &&
+        adminDoc().dioceseId == dioceseId &&
+        adminDoc().divisionId == divisionId
+      );
+    }
+
+    function isChurchAdminFor(dioceseId, divisionId, churchId) {
+      return isDivisionAdminFor(dioceseId, divisionId) || (
+        hasAdminDoc() &&
+        adminDoc().role == 'church_admin' &&
+        adminDoc().dioceseId == dioceseId &&
+        adminDoc().churchId == churchId
+      );
+    }
+
+    function canManageScope(scope, dioceseId, divisionId, churchId) {
+      return (scope == 'diocese' && isDioceseAdmin(dioceseId)) ||
+             (scope == 'division' && divisionId.size() > 0 && isDivisionAdminFor(dioceseId, divisionId)) ||
+             (scope == 'church' && divisionId.size() > 0 && churchId.size() > 0 && isChurchAdminFor(dioceseId, divisionId, churchId));
+    }
+
+    function isInitialSeed() {
+      return !exists(/databases/$(database)/documents/meta/seeded_v1) &&
+             existsAfter(/databases/$(database)/documents/meta/seeded_v1);
+    }
+
+    // ── Entity Validation Blueprints ───────────────────────────────────
+    function isValidSeedMeta(data) {
+      return data.keys().hasAll(['seededBy', 'seededAt']) &&
+             data.keys().hasOnly(['seededBy', 'seededAt']) &&
+             data.seededBy is string && data.seededBy == request.auth.uid && data.seededBy.size() <= 128 &&
+             data.seededAt is timestamp && data.seededAt == request.time;
+    }
+
+    function isValidDiocese(data) {
+      return data.keys().hasAll(['name', 'bishopName', 'headquarters', 'isActive', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['name', 'bishopName', 'headquarters', 'isActive', 'createdAt', 'updatedAt']) &&
+             data.name is string && data.name.size() >= 2 && data.name.size() <= 120 &&
+             data.bishopName is string && data.bishopName.size() >= 2 && data.bishopName.size() <= 120 &&
+             data.headquarters is string && data.headquarters.size() >= 2 && data.headquarters.size() <= 200 &&
+             data.isActive is bool &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp && data.updatedAt == request.time;
+    }
+
+    function isValidDivision(data) {
+      return data.keys().hasAll(['dioceseId', 'name', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['dioceseId', 'name', 'headquarters', 'chairpersonName', 'createdAt', 'updatedAt']) &&
+             isValidId(data.dioceseId) &&
+             data.name is string && data.name.size() >= 2 && data.name.size() <= 120 &&
+             (!('headquarters' in data) || (data.headquarters is string && data.headquarters.size() <= 200)) &&
+             (!('chairpersonName' in data) || (data.chairpersonName is string && data.chairpersonName.size() <= 120)) &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp && data.updatedAt == request.time;
+    }
+
+    function isValidDistrict(data) {
+      return data.keys().hasAll(['dioceseId', 'divisionId', 'name', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['dioceseId', 'divisionId', 'name', 'createdAt', 'updatedAt']) &&
+             isValidId(data.dioceseId) &&
+             isValidId(data.divisionId) &&
+             data.name is string && data.name.size() >= 2 && data.name.size() <= 120 &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp && data.updatedAt == request.time;
+    }
+
+    function isValidChurch(data) {
+      return data.keys().hasAll(['dioceseId', 'divisionId', 'districtId', 'name', 'pastorName', 'address', 'serviceSchedule', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['dioceseId', 'divisionId', 'districtId', 'name', 'pastorName', 'address', 'serviceSchedule', 'phone', 'createdAt', 'updatedAt']) &&
+             isValidId(data.dioceseId) &&
+             isValidId(data.divisionId) &&
+             data.districtId is string && data.districtId.size() <= 128 && (data.districtId == '' || isValidId(data.districtId)) &&
+             data.name is string && data.name.size() >= 2 && data.name.size() <= 140 &&
+             data.pastorName is string && data.pastorName.size() >= 2 && data.pastorName.size() <= 120 &&
+             data.address is string && data.address.size() >= 2 && data.address.size() <= 280 &&
+             data.serviceSchedule is list && data.serviceSchedule.size() >= 1 && data.serviceSchedule.size() <= 10 &&
+             data.serviceSchedule[0] is string && data.serviceSchedule[0].size() <= 120 &&
+             (!('phone' in data) || (data.phone is string && data.phone.size() <= 40)) &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp && data.updatedAt == request.time;
+    }
+
+    function isValidMember(data) {
+      return data.keys().hasAll(['uid', 'fullName', 'phoneNumber', 'email', 'dioceseId', 'divisionId', 'districtId', 'churchId', 'preferredLanguage', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['uid', 'fullName', 'phoneNumber', 'email', 'dioceseId', 'divisionId', 'districtId', 'churchId', 'subgroup', 'preferredLanguage', 'createdAt', 'updatedAt']) &&
+             isValidId(data.uid) &&
+             data.fullName is string && data.fullName.size() >= 2 && data.fullName.size() <= 120 &&
+             data.phoneNumber is string && data.phoneNumber.size() >= 6 && data.phoneNumber.size() <= 30 &&
+             data.email is string && data.email.size() <= 180 &&
+             isValidId(data.dioceseId) &&
+             isValidId(data.divisionId) &&
+             data.districtId is string && data.districtId.size() <= 128 &&
+             isValidId(data.churchId) &&
+             (!('subgroup' in data) || (data.subgroup is string && data.subgroup.size() <= 100)) &&
+             data.preferredLanguage in ['en', 'ha'] &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp && data.updatedAt == request.time;
+    }
+
+    function isValidAdminRecord(data) {
+      return data.keys().hasAll(['uid', 'email', 'fullName', 'role', 'dioceseId', 'divisionId', 'churchId', 'assignedBy', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['uid', 'email', 'fullName', 'role', 'dioceseId', 'divisionId', 'churchId', 'inviteId', 'assignedBy', 'createdAt', 'updatedAt']) &&
+             isValidId(data.uid) &&
+             data.email is string && data.email.size() >= 3 && data.email.size() <= 180 &&
+             data.fullName is string && data.fullName.size() >= 2 && data.fullName.size() <= 120 &&
+             data.role in ['diocese_secretary', 'division_admin', 'church_admin'] &&
+             isValidId(data.dioceseId) &&
+             data.divisionId is string && data.divisionId.size() <= 128 &&
+             data.churchId is string && data.churchId.size() <= 128 &&
+             (!('inviteId' in data) || (data.inviteId is string && data.inviteId.size() <= 128)) &&
+             data.assignedBy is string && data.assignedBy.size() <= 128 &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp && data.updatedAt == request.time;
+    }
+
+    function isValidAdminInvite(data) {
+      return data.keys().hasAll(['email', 'fullName', 'role', 'dioceseId', 'divisionId', 'churchId', 'assignedBy', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['email', 'fullName', 'role', 'dioceseId', 'divisionId', 'churchId', 'assignedBy', 'createdAt', 'updatedAt']) &&
+             data.email is string && data.email.size() >= 3 && data.email.size() <= 180 &&
+             data.fullName is string && data.fullName.size() >= 2 && data.fullName.size() <= 120 &&
+             data.role in ['diocese_secretary', 'division_admin', 'church_admin'] &&
+             isValidId(data.dioceseId) &&
+             data.divisionId is string && data.divisionId.size() <= 128 &&
+             data.churchId is string && data.churchId.size() <= 128 &&
+             data.assignedBy is string && data.assignedBy.size() <= 128 &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp && data.updatedAt == request.time;
+    }
+
+    function isValidAnnouncement(data) {
+      return data.keys().hasAll(['title', 'summary', 'body', 'visibilityScope', 'dioceseId', 'divisionId', 'churchId', 'authorityLabel', 'authorUid', 'publishedAt', 'updatedAt']) &&
+             data.keys().hasOnly(['title', 'summary', 'body', 'visibilityScope', 'dioceseId', 'divisionId', 'churchId', 'authorityLabel', 'authorUid', 'publishedAt', 'updatedAt']) &&
+             data.title is string && data.title.size() >= 3 && data.title.size() <= 160 &&
+             data.summary is string && data.summary.size() >= 5 && data.summary.size() <= 320 &&
+             data.body is string && data.body.size() >= 5 && data.body.size() <= 5000 &&
+             data.visibilityScope in ['diocese', 'division', 'church'] &&
+             isValidId(data.dioceseId) &&
+             data.divisionId is string && data.divisionId.size() <= 128 &&
+             data.churchId is string && data.churchId.size() <= 128 &&
+             data.authorityLabel is string && data.authorityLabel.size() >= 2 && data.authorityLabel.size() <= 140 &&
+             data.authorUid is string && data.authorUid.size() <= 128 &&
+             data.publishedAt is timestamp &&
+             data.updatedAt is timestamp && data.updatedAt == request.time;
+    }
+
+    function isValidEvent(data) {
+      return data.keys().hasAll(['title', 'description', 'date', 'time', 'location', 'visibilityScope', 'dioceseId', 'divisionId', 'churchId', 'organizerLabel', 'authorUid', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['title', 'description', 'date', 'time', 'location', 'visibilityScope', 'dioceseId', 'divisionId', 'churchId', 'organizerLabel', 'authorUid', 'createdAt', 'updatedAt']) &&
+             data.title is string && data.title.size() >= 3 && data.title.size() <= 160 &&
+             data.description is string && data.description.size() <= 2500 &&
+             data.date is string && data.date.size() == 10 && data.date.matches('^\\d{4}-\\d{2}-\\d{2}$') &&
+             data.time is string && data.time.size() >= 2 && data.time.size() <= 40 &&
+             data.location is string && data.location.size() >= 2 && data.location.size() <= 240 &&
+             data.visibilityScope in ['diocese', 'division', 'church'] &&
+             isValidId(data.dioceseId) &&
+             data.divisionId is string && data.divisionId.size() <= 128 &&
+             data.churchId is string && data.churchId.size() <= 128 &&
+             data.organizerLabel is string && data.organizerLabel.size() >= 2 && data.organizerLabel.size() <= 140 &&
+             data.authorUid is string && data.authorUid.size() <= 128 &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp && data.updatedAt == request.time;
+    }
+
+    function canClaimAdminInvite(uid) {
+      return uid == request.auth.uid &&
+        'inviteId' in incoming() &&
+        isValidId(incoming().inviteId) &&
+        exists(/databases/$(database)/documents/adminInvites/$(incoming().inviteId)) &&
+        get(/databases/$(database)/documents/adminInvites/$(incoming().inviteId)).data.email.lower() == request.auth.token.email.lower() &&
+        incoming().email.lower() == request.auth.token.email.lower() &&
+        incoming().role == get(/databases/$(database)/documents/adminInvites/$(incoming().inviteId)).data.role &&
+        incoming().dioceseId == get(/databases/$(database)/documents/adminInvites/$(incoming().inviteId)).data.dioceseId &&
+        incoming().divisionId == get(/databases/$(database)/documents/adminInvites/$(incoming().inviteId)).data.divisionId &&
+        incoming().churchId == get(/databases/$(database)/documents/adminInvites/$(incoming().inviteId)).data.churchId;
+    }
+
+    // ── Collection Rules ───────────────────────────────────────────────
+    match /meta/{docId} {
+      allow get: if isVerifiedUser() && isValidId(docId);
+      allow create: if isVerifiedUser() && docId == 'seeded_v1' && !exists(/databases/$(database)/documents/meta/seeded_v1) && isValidSeedMeta(incoming());
+      allow update, delete: if false;
+    }
+
+    match /dioceses/{dioceseId} {
+      allow get: if isVerifiedUser() && isValidId(dioceseId);
+      allow list: if isVerifiedUser() && (existing().isActive == true || isAnyDioceseAdmin());
+      allow create: if isVerifiedUser() && isValidId(dioceseId) && isValidDiocese(incoming()) && incoming().createdAt == request.time && (isDioceseAdmin(dioceseId) || (dioceseId == 'abuja' && isInitialSeed()));
+      allow update: if isVerifiedUser() && isValidId(dioceseId) && isValidDiocese(incoming()) && isDioceseAdmin(dioceseId) && incoming().createdAt == existing().createdAt;
+      allow delete: if false;
+    }
+
+    match /divisions/{divisionId} {
+      allow get: if isVerifiedUser() && isValidId(divisionId);
+      allow list: if isVerifiedUser() && existing().dioceseId is string;
+      allow create: if isVerifiedUser() && isValidId(divisionId) && isValidDivision(incoming()) && incoming().createdAt == request.time && existsAfter(/databases/$(database)/documents/dioceses/$(incoming().dioceseId)) && (isDioceseAdmin(incoming().dioceseId) || isInitialSeed());
+      allow update: if isVerifiedUser() && isValidId(divisionId) && isValidDivision(incoming()) && isDivisionAdminFor(existing().dioceseId, divisionId) && incoming().dioceseId == existing().dioceseId && incoming().createdAt == existing().createdAt;
+      allow delete: if isVerifiedUser() && isValidId(divisionId) && isDioceseAdmin(existing().dioceseId);
+    }
+
+    match /districts/{districtId} {
+      allow get: if isVerifiedUser() && isValidId(districtId);
+      allow list: if isVerifiedUser() && existing().dioceseId is string;
+      allow create: if isVerifiedUser() && isValidId(districtId) && isValidDistrict(incoming()) && incoming().createdAt == request.time && existsAfter(/databases/$(database)/documents/divisions/$(incoming().divisionId)) && (isDivisionAdminFor(incoming().dioceseId, incoming().divisionId) || isInitialSeed());
+      allow update: if isVerifiedUser() && isValidId(districtId) && isValidDistrict(incoming()) && isDivisionAdminFor(existing().dioceseId, existing().divisionId) && incoming().dioceseId == existing().dioceseId && incoming().divisionId == existing().divisionId && incoming().createdAt == existing().createdAt;
+      allow delete: if isVerifiedUser() && isValidId(districtId) && isDivisionAdminFor(existing().dioceseId, existing().divisionId);
+    }
+
+    match /churches/{churchId} {
+      allow get: if isVerifiedUser() && isValidId(churchId);
+      allow list: if isVerifiedUser() && existing().dioceseId is string;
+      allow create: if isVerifiedUser() && isValidId(churchId) && isValidChurch(incoming()) && incoming().createdAt == request.time && existsAfter(/databases/$(database)/documents/divisions/$(incoming().divisionId)) && (isDivisionAdminFor(incoming().dioceseId, incoming().divisionId) || isInitialSeed());
+      allow update: if isVerifiedUser() && isValidId(churchId) && isValidChurch(incoming()) && incoming().createdAt == existing().createdAt && incoming().dioceseId == existing().dioceseId && (
+        isDivisionAdminFor(existing().dioceseId, existing().divisionId) ||
+        (isChurchAdminFor(existing().dioceseId, existing().divisionId, churchId) &&
+         incoming().divisionId == existing().divisionId &&
+         incoming().diff(existing()).affectedKeys().hasOnly(['name', 'pastorName', 'address', 'serviceSchedule', 'phone', 'updatedAt']))
+      );
+      allow delete: if isVerifiedUser() && isValidId(churchId) && isDivisionAdminFor(existing().dioceseId, existing().divisionId);
+    }
+
+    match /members/{memberId} {
+      allow get: if isVerifiedUser() && isValidId(memberId) && (
+        memberId == request.auth.uid ||
+        isChurchAdminFor(existing().dioceseId, existing().divisionId, existing().churchId)
+      );
+      allow list: if isVerifiedUser() && (
+        existing().uid == request.auth.uid ||
+        isChurchAdminFor(existing().dioceseId, existing().divisionId, existing().churchId)
+      );
+      allow create: if isVerifiedUser() && isValidId(memberId) && memberId == request.auth.uid && isValidMember(incoming()) && incoming().uid == request.auth.uid && incoming().createdAt == request.time && exists(/databases/$(database)/documents/churches/$(incoming().churchId));
+      allow update: if isVerifiedUser() && isValidId(memberId) && memberId == request.auth.uid && isValidMember(incoming()) && incoming().uid == existing().uid && incoming().createdAt == existing().createdAt && exists(/databases/$(database)/documents/churches/$(incoming().churchId)) && incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'phoneNumber', 'dioceseId', 'divisionId', 'districtId', 'churchId', 'subgroup', 'preferredLanguage', 'updatedAt']);
+      allow delete: if isVerifiedUser() && isValidId(memberId) && (memberId == request.auth.uid || isDioceseAdmin(existing().dioceseId));
+    }
+
+    match /admins/{adminId} {
+      allow get: if isVerifiedUser() && isValidId(adminId) && (adminId == request.auth.uid || isAnyDioceseAdmin());
+      allow list: if isVerifiedUser() && (existing().uid == request.auth.uid || isAnyDioceseAdmin());
+      allow create: if isVerifiedUser() && isValidId(adminId) && isValidAdminRecord(incoming()) && incoming().createdAt == request.time && (
+        isDioceseAdmin(incoming().dioceseId) ||
+        (isBootstrappedAdmin() && adminId == request.auth.uid) ||
+        canClaimAdminInvite(adminId)
+      );
+      allow update: if isVerifiedUser() && isValidId(adminId) && isValidAdminRecord(incoming()) && incoming().createdAt == existing().createdAt && incoming().uid == existing().uid && isDioceseAdmin(existing().dioceseId) && isDioceseAdmin(incoming().dioceseId);
+      allow delete: if isVerifiedUser() && isValidId(adminId) && isDioceseAdmin(existing().dioceseId);
+    }
+
+    match /adminInvites/{inviteId} {
+      allow get: if isVerifiedUser() && isValidId(inviteId) && (existing().email.lower() == request.auth.token.email.lower() || isAnyDioceseAdmin());
+      allow list: if isVerifiedUser() && (existing().email.lower() == request.auth.token.email.lower() || isAnyDioceseAdmin());
+      allow create: if isVerifiedUser() && isValidId(inviteId) && isValidAdminInvite(incoming()) && incoming().createdAt == request.time && isDioceseAdmin(incoming().dioceseId);
+      allow update: if isVerifiedUser() && isValidId(inviteId) && isValidAdminInvite(incoming()) && incoming().createdAt == existing().createdAt && isDioceseAdmin(existing().dioceseId) && isDioceseAdmin(incoming().dioceseId);
+      allow delete: if isVerifiedUser() && isValidId(inviteId) && (existing().email.lower() == request.auth.token.email.lower() || isDioceseAdmin(existing().dioceseId));
+    }
+
+    match /announcements/{announcementId} {
+      allow get: if isVerifiedUser() && isValidId(announcementId);
+      allow list: if isVerifiedUser() && existing().dioceseId is string && existing().visibilityScope in ['diocese', 'division', 'church'];
+      allow create: if isVerifiedUser() && isValidId(announcementId) && isValidAnnouncement(incoming()) && incoming().publishedAt == request.time && (
+        isInitialSeed() ||
+        (incoming().authorUid == request.auth.uid && canManageScope(incoming().visibilityScope, incoming().dioceseId, incoming().divisionId, incoming().churchId))
+      );
+      allow update: if isVerifiedUser() && isValidId(announcementId) && isValidAnnouncement(incoming()) && incoming().publishedAt == existing().publishedAt && incoming().dioceseId == existing().dioceseId && canManageScope(existing().visibilityScope, existing().dioceseId, existing().divisionId, existing().churchId) && canManageScope(incoming().visibilityScope, incoming().dioceseId, incoming().divisionId, incoming().churchId);
+      allow delete: if isVerifiedUser() && isValidId(announcementId) && canManageScope(existing().visibilityScope, existing().dioceseId, existing().divisionId, existing().churchId);
+    }
+
+    match /events/{eventId} {
+      allow get: if isVerifiedUser() && isValidId(eventId);
+      allow list: if isVerifiedUser() && existing().dioceseId is string && existing().visibilityScope in ['diocese', 'division', 'church'];
+      allow create: if isVerifiedUser() && isValidId(eventId) && isValidEvent(incoming()) && incoming().createdAt == request.time && (
+        isInitialSeed() ||
+        (incoming().authorUid == request.auth.uid && canManageScope(incoming().visibilityScope, incoming().dioceseId, incoming().divisionId, incoming().churchId))
+      );
+      allow update: if isVerifiedUser() && isValidId(eventId) && isValidEvent(incoming()) && incoming().createdAt == existing().createdAt && incoming().dioceseId == existing().dioceseId && canManageScope(existing().visibilityScope, existing().dioceseId, existing().divisionId, existing().churchId) && canManageScope(incoming().visibilityScope, incoming().dioceseId, incoming().divisionId, incoming().churchId);
+      allow delete: if isVerifiedUser() && isValidId(eventId) && canManageScope(existing().visibilityScope, existing().dioceseId, existing().divisionId, existing().churchId);
+    }
+  }
+}

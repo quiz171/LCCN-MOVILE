@@ -1,0 +1,211 @@
+{
+  "entities": {
+    "Diocese": {
+      "title": "Diocese",
+      "description": "Top-level LCCN diocese entity (Abuja Diocese in Phase 1, designed for future dioceses).",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "bishopName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "headquarters": { "type": "string", "minLength": 2, "maxLength": 200 },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "bishopName", "headquarters", "isActive", "createdAt", "updatedAt"]
+    },
+    "Division": {
+      "title": "Division",
+      "description": "Administrative division within a diocese.",
+      "type": "object",
+      "properties": {
+        "dioceseId": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$", "maxLength": 128 },
+        "name": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "headquarters": { "type": "string", "maxLength": 200 },
+        "chairpersonName": { "type": "string", "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["dioceseId", "name", "createdAt", "updatedAt"]
+    },
+    "District": {
+      "title": "District",
+      "description": "Optional district subdivision under a division.",
+      "type": "object",
+      "properties": {
+        "dioceseId": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$", "maxLength": 128 },
+        "divisionId": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$", "maxLength": 128 },
+        "name": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["dioceseId", "divisionId", "name", "createdAt", "updatedAt"]
+    },
+    "Church": {
+      "title": "Church",
+      "description": "Local LCCN congregation belonging to a division and optional district.",
+      "type": "object",
+      "properties": {
+        "dioceseId": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$", "maxLength": 128 },
+        "divisionId": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$", "maxLength": 128 },
+        "districtId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "minLength": 2, "maxLength": 140 },
+        "pastorName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "address": { "type": "string", "minLength": 2, "maxLength": 280 },
+        "serviceSchedule": { "type": "array" },
+        "phone": { "type": "string", "maxLength": 40 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["dioceseId", "divisionId", "districtId", "name", "pastorName", "address", "serviceSchedule", "createdAt", "updatedAt"]
+    },
+    "Member": {
+      "title": "Member",
+      "description": "Registered church member profile with PII protected by ownership and scoped admin rules.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$", "maxLength": 128 },
+        "fullName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "phoneNumber": { "type": "string", "minLength": 6, "maxLength": 30 },
+        "email": { "type": "string", "maxLength": 180 },
+        "dioceseId": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$", "maxLength": 128 },
+        "divisionId": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$", "maxLength": 128 },
+        "districtId": { "type": "string", "maxLength": 128 },
+        "churchId": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$", "maxLength": 128 },
+        "subgroup": { "type": "string", "maxLength": 100 },
+        "preferredLanguage": { "type": "string", "enum": ["en", "ha"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "fullName", "phoneNumber", "email", "dioceseId", "divisionId", "districtId", "churchId", "preferredLanguage", "createdAt", "updatedAt"]
+    },
+    "AdminRecord": {
+      "title": "AdminRecord",
+      "description": "Authorized church administrator role assignment scoped to Diocese, Division, or Church.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$", "maxLength": 128 },
+        "email": { "type": "string", "minLength": 3, "maxLength": 180 },
+        "fullName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "role": { "type": "string", "enum": ["diocese_secretary", "division_admin", "church_admin"] },
+        "dioceseId": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$", "maxLength": 128 },
+        "divisionId": { "type": "string", "maxLength": 128 },
+        "churchId": { "type": "string", "maxLength": 128 },
+        "inviteId": { "type": "string", "maxLength": 128 },
+        "assignedBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "fullName", "role", "dioceseId", "divisionId", "churchId", "assignedBy", "createdAt", "updatedAt"]
+    },
+    "AdminInvite": {
+      "title": "AdminInvite",
+      "description": "Pending administrator role assignment keyed by email until the assignee signs in.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "minLength": 3, "maxLength": 180 },
+        "fullName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "role": { "type": "string", "enum": ["diocese_secretary", "division_admin", "church_admin"] },
+        "dioceseId": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$", "maxLength": 128 },
+        "divisionId": { "type": "string", "maxLength": 128 },
+        "churchId": { "type": "string", "maxLength": 128 },
+        "assignedBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "fullName", "role", "dioceseId", "divisionId", "churchId", "assignedBy", "createdAt", "updatedAt"]
+    },
+    "Announcement": {
+      "title": "Announcement",
+      "description": "Hierarchy-scoped church announcement.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "minLength": 3, "maxLength": 160 },
+        "summary": { "type": "string", "minLength": 5, "maxLength": 320 },
+        "body": { "type": "string", "minLength": 5, "maxLength": 5000 },
+        "visibilityScope": { "type": "string", "enum": ["diocese", "division", "church"] },
+        "dioceseId": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$", "maxLength": 128 },
+        "divisionId": { "type": "string", "maxLength": 128 },
+        "churchId": { "type": "string", "maxLength": 128 },
+        "authorityLabel": { "type": "string", "minLength": 2, "maxLength": 140 },
+        "authorUid": { "type": "string", "maxLength": 128 },
+        "publishedAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "summary", "body", "visibilityScope", "dioceseId", "divisionId", "churchId", "authorityLabel", "authorUid", "publishedAt", "updatedAt"]
+    },
+    "Event": {
+      "title": "Event",
+      "description": "Hierarchy-scoped church event.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "minLength": 3, "maxLength": 160 },
+        "description": { "type": "string", "maxLength": 2500 },
+        "date": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "maxLength": 10 },
+        "time": { "type": "string", "minLength": 2, "maxLength": 40 },
+        "location": { "type": "string", "minLength": 2, "maxLength": 240 },
+        "visibilityScope": { "type": "string", "enum": ["diocese", "division", "church"] },
+        "dioceseId": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$", "maxLength": 128 },
+        "divisionId": { "type": "string", "maxLength": 128 },
+        "churchId": { "type": "string", "maxLength": 128 },
+        "organizerLabel": { "type": "string", "minLength": 2, "maxLength": 140 },
+        "authorUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "description", "date", "time", "location", "visibilityScope", "dioceseId", "divisionId", "churchId", "organizerLabel", "authorUid", "createdAt", "updatedAt"]
+    },
+    "SeedMeta": {
+      "title": "SeedMeta",
+      "description": "Idempotent initialization marker for Abuja Diocese starter data.",
+      "type": "object",
+      "properties": {
+        "seededBy": { "type": "string", "maxLength": 128 },
+        "seededAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["seededBy", "seededAt"]
+    }
+  },
+  "firestore": {
+    "/dioceses/{dioceseId}": {
+      "schema": { "$ref": "#/entities/Diocese" },
+      "description": "LCCN dioceses; Abuja Diocese is active in Phase 1."
+    },
+    "/divisions/{divisionId}": {
+      "schema": { "$ref": "#/entities/Division" },
+      "description": "Divisions belonging to each diocese."
+    },
+    "/districts/{districtId}": {
+      "schema": { "$ref": "#/entities/District" },
+      "description": "Optional districts within a division."
+    },
+    "/churches/{churchId}": {
+      "schema": { "$ref": "#/entities/Church" },
+      "description": "Local churches with pastor, address, and service times."
+    },
+    "/members/{memberId}": {
+      "schema": { "$ref": "#/entities/Member" },
+      "description": "Private member profile documents keyed by Firebase Auth UID."
+    },
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/AdminRecord" },
+      "description": "Active administrator permissions keyed by Firebase Auth UID."
+    },
+    "/adminInvites/{inviteId}": {
+      "schema": { "$ref": "#/entities/AdminInvite" },
+      "description": "Pending administrator role assignments by email."
+    },
+    "/announcements/{announcementId}": {
+      "schema": { "$ref": "#/entities/Announcement" },
+      "description": "Diocese, division, and church announcements."
+    },
+    "/events/{eventId}": {
+      "schema": { "$ref": "#/entities/Event" },
+      "description": "Diocese, division, and church events."
+    },
+    "/meta/{docId}": {
+      "schema": { "$ref": "#/entities/SeedMeta" },
+      "description": "Internal seed flag document (seeded_v1)."
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Project Workspace",
+  "description": "Your creative app workspace — ready to build anything.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
